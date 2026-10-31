@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+
+# Local index data — never commit, it is derived and large.
+/sift.db
+/sift.db-wal
+/sift.db-shm
+*.sqlite
+*.sqlite3
+
+# Sweep output, until the numbers are actually measured and worth keeping.
+/julia/out/
+
+# Local data artifacts (tokens.db etc.) — derived, never commit.
+/data/
+
+.DS_Store

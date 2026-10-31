@@ -1,0 +1,33 @@
+[package]
+name = "sift"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+description = "Session recall for coding agents: local SQLite FTS5 + BM25 + RRF over opencode history, snippet-budgeted."
+license = "LicenseRef-Proprietary"
+readme = "README.md"
+repository = "https://github.com/johnbubak/sift"
+homepage = "https://github.com/johnbubak/sift"
+documentation = "https://github.com/johnbubak/sift#readme"
+keywords = ["mcp", "sqlite", "fts5", "bm25", "opencode"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "sift"
+path = "src/main.rs"
+
+[dependencies]
+# bundled compiles SQLite with -DSQLITE_ENABLE_FTS5 unconditionally
+# (libsqlite3-sys/build.rs:163) and -DSQLITE_USE_URI, so no feature guessing.
+# Do NOT add bundled-full: it only adds modules we do not use.
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+anyhow = "1"
+
+# Phase 2 adds the MCP server:
+#   rmcp = { version = "3.5", features = ["server", "transport-io", "macros", "schemars"] }
+# rmcp 3.5.1 is three days old as of 2026-10-08. Its macro API is deliberately
+# not used yet: shipping unverified macro glue is worse than a working CLI.
+# See docs/03-phasen.md Phase 2.

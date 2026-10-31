@@ -1,0 +1,39 @@
+# sift ranking weights
+#
+# Every key maps to a ?N parameter in sql/search.sql. This file is what
+# julia/sweep.jl overwrites — see docs/03-phasen.md Phase 6.
+#
+# The values below are the UNPROVEN starting point. They are not tuned. Do not
+# present them as measured; the only measured numbers in this project so far are
+# in docs/00-archeologie.md.
+#
+# Phase 6 entry condition: a labelled query set of at least 10 questions with
+# expected hits. Without labels a sweep is guessing.
+
+# Weight of the recency ranking inside the RRF fusion. 0.0 = pure BM25.
+recency_weight = 0.3
+
+# bm25() column weights. Body carries the content, title is context.
+title_weight = 1.0
+body_weight  = 3.0
+
+# snippet() budget in TOKENS, not words. 30 tokens x 3 hits stays under ~150
+# tokens of foreign context per search. This budget is the project's whole point.
+#
+# RECALIBRATED 2026-10-08. FTS5 tokens are NOT LLM tokens: measured over 200 real
+# hits on this corpus, snippet(…, 30) yields 204 chars = ~51 LLM tokens, because
+# the unicode61 tokeniser averages ~4 chars per token on German/code text while an
+# LLM tokeniser averages ~2.8. 30 was therefore ~1.7x too optimistic.
+# 18 now measures ~30 real tokens, which is what the budget always meant.
+snippet_tokens = 18
+
+# At most this many hits per session in one result set. Measured: without a cap,
+# all top-3 hits came from a single session.
+max_per_session = 2
+
+# Default hits per search.
+limit_default = 3
+
+# RRF damping constant k. 60 is the literature default and is deliberately not
+# tuned: fewer knobs means nothing here was fitted to noise.
+rrf_k = 60.0
