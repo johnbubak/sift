@@ -35,7 +35,7 @@ what it already handed out per scope.
 | 0 · SQL core | ✅ | Schema, extraction, FTS, RRF, dedup — `scripts/verify-sql.sh` PASS |
 | 1 · Indexer | ✅ | `sift build`: 169,013 docs (v1+v2) in 41.6 s |
 | 2a · Token budget | ✅ | FTS-tokens ≠ LLM-tokens fixed, OR instead of AND, `should-search` |
-| 2 · MCP server | 🔶 | CLI finished & verified, `rmcp` wiring open |
+| 2 · MCP server | ✅ | stdio server with `sift_search` and `sift_spur`, verified |
 | 3 · Skill | ✅ | live, `opencode debug skill` shows sift |
 | 4 · Distribution | ⬜ | single binary, npm |
 | 5 · Measurements | ⬜ | trigram? embeddings? only with entry condition |

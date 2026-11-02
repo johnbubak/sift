@@ -6,6 +6,7 @@
 
 mod db;
 mod extract;
+mod mcp;
 mod index;
 mod search;
 mod sql;
@@ -72,6 +73,7 @@ USAGE
   sift mark-seen <scope> <id...>      record doc ids as delivered
   sift should-search <message...>     is this a recall request? (fail-open)
   sift spur [--limit N] [--min-repeat N]  self-audit: truncation, bad endings, loops
+  sift mcp                               run as MCP stdio server
 
 OPTIONS (search)
   --limit N          hits to return                (default from weights.toml)
@@ -119,12 +121,18 @@ fn run() -> Result<()> {
         "mark-seen" => cmd_mark_seen(&args[1..]),
         "should-search" => cmd_should_search(&args[1..]),
         "spur" => cmd_spur(&args[1..]),
+        "mcp" => cmd_mcp(),
         "-h" | "--help" | "help" => {
             out!("{USAGE}");
             Ok(())
         }
         other => bail!("unknown command '{other}'\n\n{USAGE}"),
     }
+}
+
+fn cmd_mcp() -> Result<()> {
+    let rt = tokio::runtime::Runtime::new().context("creating tokio runtime")?;
+    rt.block_on(crate::mcp::run())
 }
 
 fn cmd_build(args: &[String]) -> Result<()> {
@@ -484,6 +492,133 @@ fn parse_args(args: &[String], with_value: &[&str]) -> Result<(Vec<String>, Hash
 /// agent lost the thread: steps that started but never finished, sessions that
 /// ended in error/abort, and loops (same tool+signature repeated >= N times
 /// inside one session). No heuristics on text, no FTS5 — pure structure.
+pub fn spur_report(limit: i64, min_repeat: i64) -> Result<String> {
+    let mut buf = String::new();
+    macro_rules! o {
+        ($($arg:tt)*) => { let _ = writeln!(buf, $($arg)*); }
+    }
+    use std::fmt::Write;
+
+    let source = db::source_path();
+    o!("spur — self-audit of the agent's own session trace");
+    o!("source  {}", source.display());
+    o!("");
+
+    let conn = Connection::open(db::source_uri(&source))
+        .context("opening source database read-only")?;
+
+    // --- 1. Unpaired step-starts (structural truncation) ---
+    o!("=== 1. UNPAIRED STEP-STARTS (structural truncation) ===");
+    let (total_starts, total_finishes, unpaired, affected): (i64, i64, i64, i64) = conn.query_row(
+        "WITH per_msg AS (
+           SELECT message_id,
+                  sum(json_extract(data,'$.type')='step-start')  AS s,
+                  sum(json_extract(data,'$.type')='step-finish') AS f
+           FROM part GROUP BY message_id)
+         SELECT COALESCE(sum(s),0), COALESCE(sum(f),0),
+                COALESCE(sum(CASE WHEN s>f THEN s-f ELSE 0 END),0),
+                count(DISTINCT CASE WHEN s>f THEN message_id END)
+         FROM per_msg",
+        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?;
+    o!("{total_starts} starts, {total_finishes} finishes -> {unpaired} unpaired, across {affected} messages");
+    o!("");
+    let mut stmt = conn.prepare(
+        "WITH per_msg AS (
+           SELECT session_id, message_id,
+                  sum(json_extract(data,'$.type')='step-start')  AS s,
+                  sum(json_extract(data,'$.type')='step-finish') AS f
+           FROM part GROUP BY session_id, message_id)
+         SELECT session_id, message_id, s, f, s-f AS gap
+         FROM per_msg WHERE s > f
+         ORDER BY gap DESC, session_id
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([limit], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?))
+    })?;
+    for r in rows {
+        let (sid, mid, s, f, gap) = r?;
+        o!("  {sid}  {mid}  starts={s} finishes={f} gap={gap}");
+    }
+    o!("");
+
+    // --- 2. Bad session endings ---
+    o!("=== 2. BAD SESSION ENDINGS (error / abort / non-clean) ===");
+    let bad_count: i64 = conn.query_row(
+        "WITH lastmsg AS (
+           SELECT session_id, json_extract(data,'$.role') role,
+                  json_extract(data,'$.finish') finish,
+                  json_extract(data,'$.error.name') err,
+                  ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY time_created DESC) rn
+           FROM message)
+         SELECT count(*) FROM lastmsg
+         WHERE rn=1 AND NOT (role='assistant' AND finish='stop')",
+        [], |r| r.get(0),
+    )?;
+    o!("{bad_count} sessions ended non-clean");
+    o!("");
+    let mut stmt = conn.prepare(
+        "WITH lastmsg AS (
+           SELECT session_id, json_extract(data,'$.role') role,
+                  json_extract(data,'$.finish') finish,
+                  json_extract(data,'$.error.name') err,
+                  ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY time_created DESC) rn
+           FROM message)
+         SELECT session_id, role, COALESCE(finish,'-'), COALESCE(err,'-')
+         FROM lastmsg WHERE rn=1 AND NOT (role='assistant' AND finish='stop')
+         ORDER BY session_id LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([limit], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+    })?;
+    for r in rows {
+        let (sid, role, finish, err) = r?;
+        o!("  {sid}  role={role} finish={finish} error={err}");
+    }
+    o!("");
+
+    // --- 3. Loops ---
+    o!("=== 3. LOOPS (same tool+signature >= {min_repeat}x in one session) ===");
+    let loop_sessions: i64 = conn.query_row(
+        "WITH c AS (
+           SELECT session_id, json_extract(data,'$.tool') tool,
+                  substr(json_extract(data,'$.state.input'),1,120) sig
+           FROM part WHERE json_extract(data,'$.type')='tool'),
+         g AS (SELECT session_id FROM c GROUP BY session_id, tool, sig HAVING count(*)>=?1)
+         SELECT count(DISTINCT session_id) FROM g",
+        [min_repeat], |r| r.get(0),
+    )?;
+    o!("{loop_sessions} sessions contain at least one loop (min-repeat={min_repeat})");
+    o!("");
+    let mut stmt = conn.prepare(
+        "WITH c AS (
+           SELECT session_id, json_extract(data,'$.tool') tool,
+                  substr(json_extract(data,'$.state.input'),1,120) sig
+           FROM part WHERE json_extract(data,'$.type')='tool')
+         SELECT session_id, tool, count(*) AS n, sig
+         FROM c GROUP BY session_id, tool, sig
+         HAVING count(*) >= ?1
+         ORDER BY n DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(rusqlite::params![min_repeat, limit], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?, r.get::<_, String>(3)?))
+    })?;
+    for r in rows {
+        let (sid, tool, n, sig) = r?;
+        let short: String = sig.chars().take(80).collect();
+        o!("  {sid}  {tool} x{n}  {short}");
+    }
+    o!("");
+    o!("note: repetition in agent traces is not contiguous (adjacent-repeat rate ~6%).");
+    o!("      detection is by density within a session, not by run boundaries.");
+    Ok(buf)
+}
+
+
 fn cmd_spur(args: &[String]) -> Result<()> {
     let mut limit: i64 = 20;
     let mut min_repeat: i64 = 10;
@@ -503,122 +638,8 @@ fn cmd_spur(args: &[String]) -> Result<()> {
         i += 1;
     }
 
-    let source = db::source_path();
-    outln!("spur — self-audit of the agent's own session trace");
-    outln!("source  {}", source.display());
-    outln!("");
-
-    let conn = Connection::open(db::source_uri(&source))
-        .context("opening source database read-only")?;
-
-    // --- 1. Unpaired step-starts (structural truncation) ---
-    outln!("=== 1. UNPAIRED STEP-STARTS (structural truncation) ===");
-    let (total_starts, total_finishes, unpaired, affected): (i64, i64, i64, i64) = conn.query_row(
-        "WITH per_msg AS (
-           SELECT message_id,
-                  sum(json_extract(data,'$.type')='step-start')  AS s,
-                  sum(json_extract(data,'$.type')='step-finish') AS f
-           FROM part GROUP BY message_id)
-         SELECT COALESCE(sum(s),0), COALESCE(sum(f),0),
-                COALESCE(sum(CASE WHEN s>f THEN s-f ELSE 0 END),0),
-                count(DISTINCT CASE WHEN s>f THEN message_id END)
-         FROM per_msg",
-        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-    )?;
-    outln!("{total_starts} starts, {total_finishes} finishes -> {unpaired} unpaired, across {affected} messages");
-    outln!("");
-    let mut stmt = conn.prepare(
-        "WITH per_msg AS (
-           SELECT session_id, message_id,
-                  sum(json_extract(data,'$.type')='step-start')  AS s,
-                  sum(json_extract(data,'$.type')='step-finish') AS f
-           FROM part GROUP BY session_id, message_id)
-         SELECT session_id, message_id, s, f, s-f AS gap
-         FROM per_msg WHERE s > f
-         ORDER BY gap DESC, session_id
-         LIMIT ?1",
-    )?;
-    let rows = stmt.query_map([limit], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
-            r.get::<_, i64>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?))
-    })?;
-    for r in rows {
-        let (sid, mid, s, f, gap) = r?;
-        outln!("  {sid}  {mid}  starts={s} finishes={f} gap={gap}");
-    }
-    outln!("");
-
-    // --- 2. Bad session endings ---
-    outln!("=== 2. BAD SESSION ENDINGS (error / abort / non-clean) ===");
-    let bad_count: i64 = conn.query_row(
-        "WITH lastmsg AS (
-           SELECT session_id, json_extract(data,'$.role') role,
-                  json_extract(data,'$.finish') finish,
-                  json_extract(data,'$.error.name') err,
-                  ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY time_created DESC) rn
-           FROM message)
-         SELECT count(*) FROM lastmsg
-         WHERE rn=1 AND NOT (role='assistant' AND finish='stop')",
-        [], |r| r.get(0),
-    )?;
-    outln!("{bad_count} sessions ended non-clean");
-    outln!("");
-    let mut stmt = conn.prepare(
-        "WITH lastmsg AS (
-           SELECT session_id, json_extract(data,'$.role') role,
-                  json_extract(data,'$.finish') finish,
-                  json_extract(data,'$.error.name') err,
-                  ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY time_created DESC) rn
-           FROM message)
-         SELECT session_id, role, COALESCE(finish,'-'), COALESCE(err,'-')
-         FROM lastmsg WHERE rn=1 AND NOT (role='assistant' AND finish='stop')
-         ORDER BY session_id LIMIT ?1",
-    )?;
-    let rows = stmt.query_map([limit], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?, r.get::<_, String>(3)?))
-    })?;
-    for r in rows {
-        let (sid, role, finish, err) = r?;
-        outln!("  {sid}  role={role} finish={finish} error={err}");
-    }
-    outln!("");
-
-    // --- 3. Loops ---
-    outln!("=== 3. LOOPS (same tool+signature >= {min_repeat}x in one session) ===");
-    let loop_sessions: i64 = conn.query_row(
-        "WITH c AS (
-           SELECT session_id, json_extract(data,'$.tool') tool,
-                  substr(json_extract(data,'$.state.input'),1,120) sig
-           FROM part WHERE json_extract(data,'$.type')='tool'),
-         g AS (SELECT session_id FROM c GROUP BY session_id, tool, sig HAVING count(*)>=?1)
-         SELECT count(DISTINCT session_id) FROM g",
-        [min_repeat], |r| r.get(0),
-    )?;
-    outln!("{loop_sessions} sessions contain at least one loop (min-repeat={min_repeat})");
-    outln!("");
-    let mut stmt = conn.prepare(
-        "WITH c AS (
-           SELECT session_id, json_extract(data,'$.tool') tool,
-                  substr(json_extract(data,'$.state.input'),1,120) sig
-           FROM part WHERE json_extract(data,'$.type')='tool')
-         SELECT session_id, tool, count(*) AS n, sig
-         FROM c GROUP BY session_id, tool, sig
-         HAVING count(*) >= ?1
-         ORDER BY n DESC LIMIT ?2",
-    )?;
-    let rows = stmt.query_map(rusqlite::params![min_repeat, limit], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?,
-            r.get::<_, i64>(2)?, r.get::<_, String>(3)?))
-    })?;
-    for r in rows {
-        let (sid, tool, n, sig) = r?;
-        let short: String = sig.chars().take(80).collect();
-        outln!("  {sid}  {tool} x{n}  {short}");
-    }
-    outln!("");
-    outln!("note: repetition in agent traces is not contiguous (adjacent-repeat rate ~6%).");
-    outln!("      detection is by density within a session, not by run boundaries.");
+    let report = spur_report(limit, min_repeat)?;
+    out!("{}", report);
     Ok(())
 }
 

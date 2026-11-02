@@ -128,7 +128,7 @@ aus der Intuition.
 * `sift_seen` merkt `doc_id`, nicht den Snippet-Fingerprint → Zwillings-Snippets
   rücken im nächsten Durchlauf nach.
 * `snip_rank` und `sess_rank` sind harte Filter und können kleine Korpora leerziehen.
-* Der MCP-Server fehlt. `rmcp` ist in `Cargo.toml` bewusst noch nicht aktiviert.
+* Der MCP-Server ist implementiert (`sift mcp`, stdio). `rmcp` aktiv.
 * `weights.toml` ist **nicht** getunt.
 * v2-Sessions werden jetzt indexiert (14.213 Docs). `compaction`-Parts und
   `session_context_epoch` sind noch nicht als Signals genutzt.

@@ -23,11 +23,9 @@ path = "src/main.rs"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+schemars = "1.0"
 toml = "0.9"
 anyhow = "1"
 
-# Phase 2 adds the MCP server:
-#   rmcp = { version = "3.5", features = ["server", "transport-io", "macros", "schemars"] }
-# rmcp 3.5.1 is three days old as of 2026-10-08. Its macro API is deliberately
-# not used yet: shipping unverified macro glue is worse than a working CLI.
-# See docs/03-phasen.md Phase 2.
+rmcp = { version = "3.5", features = ["server", "transport-io", "macros", "schemars"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
