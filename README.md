@@ -105,5 +105,5 @@ Built something with sift? Coffee appreciated ☕
 
 ## License
 
-Proprietary — see [LICENSE](LICENSE). Prior public releases (commit `f45b993`
-and earlier) were MIT-licensed.
+MIT — see [LICENSE](LICENSE). The core is free; advanced MCP features may be
+offered separately.
