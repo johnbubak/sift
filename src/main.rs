@@ -70,7 +70,7 @@ USAGE
   sift status                         index size, watermark, last sync
   sift search <query...> [OPTIONS]    BM25 + recency, snippet-budgeted
   sift extract <file> --for <query>   every matching line of one file, with context
-  sift mark-seen <scope> <id...>      record doc ids as delivered
+  sift files <dir> --for <query>      same, recursively over a project directory  sift mark-seen <scope> <id...>      record doc ids as delivered
   sift should-search <message...>     is this a recall request? (fail-open)
   sift spur [--limit N] [--min-repeat N]  self-audit: truncation, bad endings, loops
   sift mcp                               run as MCP stdio server
@@ -118,7 +118,7 @@ fn run() -> Result<()> {
         "status" => cmd_status(),
         "search" => cmd_search(&args[1..]),
         "extract" => cmd_extract(&args[1..]),
-        "mark-seen" => cmd_mark_seen(&args[1..]),
+        "files" => cmd_files(&args[1..]),        "mark-seen" => cmd_mark_seen(&args[1..]),
         "should-search" => cmd_should_search(&args[1..]),
         "spur" => cmd_spur(&args[1..]),
         "mcp" => cmd_mcp(),
@@ -390,6 +390,77 @@ fn cmd_extract(args: &[String]) -> Result<()> {
     } else {
         outln!("{}", outcome.render());
     }
+    Ok(())
+}
+
+/// `sift files` — recursive project-directory extraction. Reads files only;
+/// no sidecar, no weights, no scope. Skips VCS/build dirs.
+fn cmd_files(args: &[String]) -> Result<()> {
+    let (positional, flags) = parse_args(args, &["--for", "--context"])?;
+    if positional.len() != 1 {
+        bail!("files needs exactly one directory\n\n{USAGE}");
+    }
+    let Some(query) = flags.get("--for") else {
+        bail!("files needs --for <query>\n\n{USAGE}");
+    };
+    if query.trim().is_empty() {
+        bail!("files needs a non-empty --for <query>\n\n{USAGE}");
+    }
+    let context = match flags.get("--context") {
+        Some(v) => {
+            let n: i64 = v
+                .parse()
+                .with_context(|| format!("--context must be a whole number of lines, got {v:?}"))?;
+            if !(0..=extract::MAX_CONTEXT).contains(&n) {
+                bail!(
+                    "--context must be between 0 and {}, got {n}",
+                    extract::MAX_CONTEXT
+                );
+            }
+            n
+        }
+        None => extract::DEFAULT_CONTEXT,
+    };
+
+    let root = std::path::Path::new(&positional[0]);
+    if !root.is_dir() {
+        bail!("not a directory: {}", root.display());
+    }
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if matches!(name.as_ref(), ".git" | "target" | "node_modules" | ".tokensave") {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.is_file() {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    let mut matched = 0usize;
+    for path in &files {
+        match extract::extract_file(path, query, context) {
+            Ok(outcome) => {
+                if matches!(outcome.verdict, extract::Verdict::Extracted) {
+                    matched += 1;
+                    outln!("{}", outcome.render());
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    outln!("💡 [sift files] {} file(s) with hits", matched);
     Ok(())
 }
 
