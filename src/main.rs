@@ -6,10 +6,12 @@
 
 mod db;
 mod extract;
+#[cfg(feature = "mcp")]
 mod mcp;
 mod index;
 mod search;
 mod sql;
+#[cfg(feature = "trigger")]
 mod trigger;
 mod weights;
 
@@ -118,9 +120,14 @@ fn run() -> Result<()> {
         "status" => cmd_status(),
         "search" => cmd_search(&args[1..]),
         "extract" => cmd_extract(&args[1..]),
-        "files" => cmd_files(&args[1..]),        "mark-seen" => cmd_mark_seen(&args[1..]),
+        #[cfg(feature = "files")]
+        "files" => cmd_files(&args[1..]),
+        "mark-seen" => cmd_mark_seen(&args[1..]),
+        #[cfg(feature = "trigger")]
         "should-search" => cmd_should_search(&args[1..]),
+        #[cfg(feature = "spur")]
         "spur" => cmd_spur(&args[1..]),
+        #[cfg(feature = "mcp")]
         "mcp" => cmd_mcp(),
         "-h" | "--help" | "help" => {
             out!("{USAGE}");
@@ -130,6 +137,7 @@ fn run() -> Result<()> {
     }
 }
 
+#[cfg(feature = "mcp")]
 fn cmd_mcp() -> Result<()> {
     let rt = tokio::runtime::Runtime::new().context("creating tokio runtime")?;
     rt.block_on(crate::mcp::run())
@@ -395,6 +403,7 @@ fn cmd_extract(args: &[String]) -> Result<()> {
 
 /// `sift files` — recursive project-directory extraction. Reads files only;
 /// no sidecar, no weights, no scope. Skips VCS/build dirs.
+#[cfg(feature = "files")]
 fn cmd_files(args: &[String]) -> Result<()> {
     let (positional, flags) = parse_args(args, &["--for", "--context"])?;
     if positional.len() != 1 {
@@ -481,6 +490,7 @@ fn cmd_mark_seen(args: &[String]) -> Result<()> {
 
 /// Advisory only. `hard = false` never blocks a search — absence of a signal
 /// means "not recommended", not "forbidden". See src/trigger.rs.
+#[cfg(feature = "trigger")]
 fn cmd_should_search(args: &[String]) -> Result<()> {
     let (positional, flags) = parse_args(args, &[])?;
     let message = positional.join(" ");
@@ -690,6 +700,7 @@ pub fn spur_report(limit: i64, min_repeat: i64) -> Result<String> {
 }
 
 
+#[cfg(feature = "spur")]
 fn cmd_spur(args: &[String]) -> Result<()> {
     let mut limit: i64 = 20;
     let mut min_repeat: i64 = 10;
@@ -714,6 +725,7 @@ fn cmd_spur(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "spur")]
 const SPUR_USAGE: &str = "\
 spur — self-audit of the agent's own session trace (read-only on opencode.db)
 

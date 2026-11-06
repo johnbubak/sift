@@ -16,6 +16,14 @@ categories = ["command-line-utilities"]
 name = "sift"
 path = "src/main.rs"
 
+[features]
+default = ["pro"]
+mcp = []
+spur = []
+files = []
+trigger = []
+pro = ["mcp", "spur", "files", "trigger"]
+
 [dependencies]
 # bundled compiles SQLite with -DSQLITE_ENABLE_FTS5 unconditionally
 # (libsqlite3-sys/build.rs:163) and -DSQLITE_USE_URI, so no feature guessing.
