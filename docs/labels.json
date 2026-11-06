@@ -1,0 +1,52 @@
+[
+  {
+    "query": "surrealdab async integration",
+    "expected_doc_id": 140858,
+    "expected_session_id": "ses_ee4d24985ffeARlbIwWgP77hT7"
+  },
+  {
+    "query": "fts5 trigram tokenizer",
+    "expected_doc_id": 150260,
+    "expected_session_id": "ses_ecfa16ec8ffe3KU0Jxa2CTeuy3"
+  },
+  {
+    "query": "jwt cache invalidierung",
+    "expected_doc_id": 140332,
+    "expected_session_id": "ses_ee4f9a1bdffe7uzTzh6oTnwZZg"
+  },
+  {
+    "query": "trigger detection",
+    "expected_doc_id": 151940,
+    "expected_session_id": "ses_ecd9abaabffe6Nxc2kc4aaeDu8"
+  },
+  {
+    "query": "opencode.db read only",
+    "expected_doc_id": 167578,
+    "expected_session_id": "ses_e8869dd81ffeNOKcYbxy71iRG4"
+  },
+  {
+    "query": "snippet tokens",
+    "expected_doc_id": 140754,
+    "expected_session_id": "ses_ee4d24985ffeARlbIwWgP77hT7"
+  },
+  {
+    "query": "anti redundancy",
+    "expected_doc_id": 146844,
+    "expected_session_id": "ses_ee03e6bc3ffe1MrgZqu4NaEAd1"
+  },
+  {
+    "query": "spur loops",
+    "expected_doc_id": 168971,
+    "expected_session_id": "ses_ee03e6bc3ffe1MrgZqu4NaEAd1"
+  },
+  {
+    "query": "extract lines",
+    "expected_doc_id": 140840,
+    "expected_session_id": "ses_ee4d24985ffeARlbIwWgP77hT7"
+  },
+  {
+    "query": "weights.toml",
+    "expected_doc_id": 140533,
+    "expected_session_id": "ses_ee4d24985ffeARlbIwWgP77hT7"
+  }
+]
