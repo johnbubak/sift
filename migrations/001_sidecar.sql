@@ -80,3 +80,50 @@ CREATE TABLE IF NOT EXISTS sift_seen (
   seen_at INTEGER NOT NULL,
   PRIMARY KEY (scope, doc_id)
 ) WITHOUT ROWID;
+
+-- Phase A — Git history (own table + watermark per repo).
+CREATE TABLE IF NOT EXISTS git_repo (
+  id        INTEGER PRIMARY KEY,
+  url       TEXT    NOT NULL UNIQUE,
+  name      TEXT    NOT NULL,
+  path      TEXT    NOT NULL,
+  host      TEXT,
+  last_sync INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS git_doc (
+  id       INTEGER PRIMARY KEY,
+  repo_id  INTEGER NOT NULL REFERENCES git_repo(id) ON DELETE CASCADE,
+  kind     TEXT    NOT NULL,   -- commit | issue | pr
+  ref      TEXT    NOT NULL,
+  author   TEXT,
+  ts       INTEGER NOT NULL,
+  title    TEXT    NOT NULL,
+  body     TEXT    NOT NULL,
+  body_fp  TEXT    NOT NULL,
+  UNIQUE(repo_id, kind, ref)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS git_fts USING fts5(
+  title, body, content='git_doc', content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS git_doc_ai AFTER INSERT ON git_doc BEGIN
+  INSERT INTO git_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS git_doc_ad AFTER DELETE ON git_doc BEGIN
+  INSERT INTO git_fts(git_fts, rowid, title, body)
+  VALUES ('delete', old.id, old.title, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS git_doc_au AFTER UPDATE ON git_doc BEGIN
+  INSERT INTO git_fts(git_fts, rowid, title, body)
+  VALUES ('delete', old.id, old.title, old.body);
+  INSERT INTO git_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+
+-- Phase B — Feedback audit log (rate limit + no content).
+CREATE TABLE IF NOT EXISTS feedback_log (
+  id      INTEGER PRIMARY KEY,
+  ts      INTEGER NOT NULL,
+  payload TEXT    NOT NULL
+);

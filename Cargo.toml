@@ -22,7 +22,9 @@ mcp = []
 spur = []
 files = []
 trigger = []
-pro = ["mcp", "spur", "files", "trigger"]
+pro = ["mcp", "spur", "files", "trigger", "git", "web"]
+git = []
+web = []
 
 [dependencies]
 # bundled compiles SQLite with -DSQLITE_ENABLE_FTS5 unconditionally

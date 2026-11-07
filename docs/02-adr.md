@@ -145,3 +145,13 @@ vergisst zuverlässig mal welche.
 **Offen.** Snippet-Fingerprint zusätzlich zu `doc_id` speichern, sonst rückt der
 Zwillings-Snippet eines gemerkten Dokuments im nächsten Scope-Durchlauf nach
 (im Test mit `doc 2694` → `doc 2693` beobachtet).
+
+---
+
+## ADR-7 · Phase A Entscheidungen (Git-Hosts, Feedback, Suche, Gates)
+
+**Entscheidung.** Git-Hosts: GitHub + Gitea (Commits immer via `git log`; Issues/PRs via `gh` für GitHub, für Gitea nur wenn `GITEA_TOKEN` gesetzt und API erreichbar — sonst Commits only, fail-open). Feedback-Ziel (Phase B): GitHub Issues im sift-Repo. Web-Suche (Phase C): Exa (bereits im Tooling), SearXNG als späterer Opt-in. Feature-Gates: `git` und `web` bleiben eigene Features unter `pro` (nicht nur `pro`), damit Core schlank bleibt.
+
+**Begründung.** Commits sind host-unabhängig und liefern den Großteil des Recalls; API-abhängige Metadaten sind Opt-in und dürfen Sync nicht blockieren (fail-open). GitHub ist primärer Host des Projekts; Gitea (git.bobka.net) wird für lokale Repos genutzt. Exa ist bereits integriert und erfordert keine Self-Hosting-Last. Separate Gates halten Binärgröße und Abhängigkeiten für Nutzer ohne Git/Web klein.
+
+**Verworfen — GitLab als dritter Host.** Kein konkreter Nutzerbedarf in dieser Phase; kann später analog zu Gitea ergänzt werden.

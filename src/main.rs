@@ -6,10 +6,13 @@
 
 mod db;
 mod extract;
+mod feedback;
 #[cfg(feature = "mcp")]
 mod mcp;
 mod index;
 mod search;
+#[cfg(feature = "git")]
+mod git;
 mod sql;
 #[cfg(feature = "trigger")]
 mod trigger;
@@ -76,6 +79,11 @@ USAGE
   sift should-search <message...>     is this a recall request? (fail-open)
   sift spur [--limit N] [--min-repeat N]  self-audit: truncation, bad endings, loops
   sift mcp                               run as MCP stdio server
+  sift git add <url>                      shallow-clone a repo for indexing
+  sift git sync [repo]                    fetch + index commits/issues/PRs
+  sift git search <term> [--repo N]       search git history
+  sift git status                         git index stats
+  sift feedback [--dry-run] [--yes]        send anonymized aggregate feedback
 
 OPTIONS (search)
   --limit N          hits to return                (default from weights.toml)
@@ -120,6 +128,9 @@ fn run() -> Result<()> {
         "status" => cmd_status(),
         "search" => cmd_search(&args[1..]),
         "extract" => cmd_extract(&args[1..]),
+        #[cfg(feature = "git")]
+        "git" => git::cmd_git(&args[1..]),
+        "feedback" => feedback::cmd_feedback(&args[1..]),
         #[cfg(feature = "files")]
         "files" => cmd_files(&args[1..]),
         "mark-seen" => cmd_mark_seen(&args[1..]),
@@ -286,12 +297,19 @@ fn cmd_search(args: &[String]) -> Result<()> {
             "--directory-contains",
             "--after",
             "--before",
+            "--repo",
         ],
     )?;
     if positional.is_empty() {
         bail!("search needs a query\n\n{USAGE}");
     }
     let query = positional.join(" ");
+
+    #[cfg(feature = "git")]
+    if let Some(repo) = flags.get("--repo") {
+        let args = vec![query.clone(), "--repo".to_string(), repo.clone()];
+        return git::cmd_search(&args);
+    }
 
     let w = load_weights();
     let limit = flags
